@@ -85,58 +85,57 @@ class SimpleCIFAR10(nn.Module):
         metrics['accuracy_non_mc'] = 0
         metrics['test_ll_mc'] = 0
 
-        with torch.no_grad():
-            if isinstance(test_data, torch.utils.data.DataLoader):
-                for data in test_data:
-                    # Temporaily disable eval mode
-                    if was_eval:
-                        self.train()
+        if isinstance(test_data, torch.utils.data.DataLoader):
+            for data in test_data:
+                # Temporaily disable eval mode
+                if was_eval:
+                    self.train()
 
-                    inputs, targets = data
+                inputs, targets = data
 
-                    # Determine where our test data needs to be sent to
-                    # by checking the first conv layer weight's location
-                    first_weight_location = self.conv1.weight.device
+                # Determine where our test data needs to be sent to
+                # by checking the first conv layer weight's location
+                first_weight_location = self.conv1.weight.device
 
-                    inputs = inputs.to(first_weight_location)
-                    targets = targets.to(first_weight_location)
+                inputs = inputs.to(first_weight_location)
+                targets = targets.to(first_weight_location)
 
-                    raw_scores_batch = torch.stack(
-                        [self.forward(inputs) for _ in range(n_prediction)])
+                raw_scores_batch = torch.stack(
+                    [self.forward(inputs) for _ in range(n_prediction)])
 
-                    predictions_batch = torch.max(raw_scores_batch, 2).values
+                predictions_batch = torch.max(raw_scores_batch, 2).values
 
-                    mean_raw_scores_batch = torch.mean(raw_scores_batch, 0)
-                    mean_predictions_batch = torch.argmax(
-                        mean_raw_scores_batch, 1)
-                    mean_predictions.append(mean_predictions_batch)
+                mean_raw_scores_batch = torch.mean(raw_scores_batch, 0)
+                mean_predictions_batch = torch.argmax(
+                    mean_raw_scores_batch, 1)
+                mean_predictions.append(mean_predictions_batch)
 
-                    if was_eval:
-                        self.eval()
+                if was_eval:
+                    self.eval()
 
-                    non_mc_raw_scores_batch = self.forward(inputs)
-                    non_mc_predictions_batch = torch.argmax(
-                        non_mc_raw_scores_batch, 1)
+                non_mc_raw_scores_batch = self.forward(inputs)
+                non_mc_predictions_batch = torch.argmax(
+                    non_mc_raw_scores_batch, 1)
 
-                    # Accuracy
-                    metrics['accuracy_mc'] += torch.mean(
-                        (mean_predictions_batch == targets).float())
-                    metrics['accuracy_mc'] /= 2
+                # Accuracy
+                metrics['accuracy_mc'] += torch.mean(
+                    (mean_predictions_batch == targets).float())
+                metrics['accuracy_mc'] /= 2
 
-                    # Accuracy (Non-MC)
-                    metrics['accuracy_non_mc'] += torch.mean(
-                        (non_mc_predictions_batch == targets).float())
-                    metrics['accuracy_non_mc'] /= 2
+                # Accuracy (Non-MC)
+                metrics['accuracy_non_mc'] += torch.mean(
+                    (non_mc_predictions_batch == targets).float())
+                metrics['accuracy_non_mc'] /= 2
 
-                    # test log-likelihood
-                    metrics['test_ll_mc'] -= (
-                        F.cross_entropy(mean_raw_scores_batch, targets))
-                    metrics['test_ll_mc'] /= 2
+                # test log-likelihood
+                metrics['test_ll_mc'] -= (
+                    F.cross_entropy(mean_raw_scores_batch, targets))
+                metrics['test_ll_mc'] /= 2
 
-                mean_predictions = torch.cat(mean_predictions)
-            else:
-                raise Exception(
-                    'SimpleCIFAR10 predict_dist() '
-                    'only accepts DataLoader test data at the moment.')
+            mean_predictions = torch.cat(mean_predictions)
+        else:
+            raise Exception(
+                'SimpleCIFAR10 predict_dist() '
+                'only accepts DataLoader test data at the moment.')
 
         return predictions, mean_predictions, metrics
