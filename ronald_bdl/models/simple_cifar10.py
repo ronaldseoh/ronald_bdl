@@ -73,35 +73,65 @@ class SimpleCIFAR10(nn.Module):
 
         return x
 
-    def predict_dist(self, test_data, n_prediction=1000):
+    def predict_dist(self, test_data, test_data_have_targets=True,
+                     n_prediction=1000, **kwargs):
 
         was_eval = not self.training
 
-        predictions = []
-        mean_predictions = []
         metrics = {}
 
-        metrics['accuracy_mc'] = 0
-        metrics['accuracy_non_mc'] = 0
-        metrics['test_ll_mc'] = 0
-
         if isinstance(test_data, torch.utils.data.DataLoader):
-            for data in test_data:
-                # Temporaily disable eval mode
-                if was_eval:
-                    self.train()
 
-                inputs, targets = data
+            predictions = []
+            mean_predictions = []
+
+            # if test_data includes targets or y_test is given,
+            # We prepare variables for evaluation metrics
+            if test_data_have_targets or ('y_test' in kwargs):
+
+                metrics['accuracy_mc'] = 0
+                metrics['accuracy_non_mc'] = 0
+                metrics['test_ll_mc'] = 0
+
+            if 'y_test' in kwargs:
+                y_test = kwargs['y_test']
+            else:
+                y_test = [None for _ in len(test_data)]
+
+            # We will assume that y will be prepared to have
+            # same number of data points as
+            # data from test_data
+            for data, y in zip(test_data, y_test):
+                if test_data_have_targets:
+                    inputs, targets = data
+                else:
+                    inputs = data
+                    targets = None
+
+                if y is not None:
+                    assert len(inputs) == len(y)
+                    targets = y
 
                 # Determine where our test data needs to be sent to
                 # by checking the first conv layer weight's location
                 first_weight_location = self.conv1.weight.device
 
                 inputs = inputs.to(first_weight_location)
-                targets = targets.to(first_weight_location)
+
+                # Explictly send targets to device memory only when
+                # it is coming from test_data DataLoader
+                if test_data_have_targets:
+                    targets = targets.to(first_weight_location)
+
+                # Temporaily disable eval mode
+                if was_eval:
+                    self.train()
 
                 raw_scores_batch = torch.stack(
                     [self.forward(inputs) for _ in range(n_prediction)])
+
+                if was_eval:
+                    self.eval()
 
                 predictions_batch = torch.max(raw_scores_batch, 2).values
 
@@ -110,27 +140,25 @@ class SimpleCIFAR10(nn.Module):
                     mean_raw_scores_batch, 1)
                 mean_predictions.append(mean_predictions_batch)
 
-                if was_eval:
-                    self.eval()
-
                 non_mc_raw_scores_batch = self.forward(inputs)
                 non_mc_predictions_batch = torch.argmax(
                     non_mc_raw_scores_batch, 1)
 
-                # Accuracy
-                metrics['accuracy_mc'] += torch.mean(
-                    (mean_predictions_batch == targets).float())
-                metrics['accuracy_mc'] /= 2
+                if len(metrics) > 0:
+                    # Accuracy
+                    metrics['accuracy_mc'] += torch.mean(
+                        (mean_predictions_batch == targets).float())
+                    metrics['accuracy_mc'] /= 2
 
-                # Accuracy (Non-MC)
-                metrics['accuracy_non_mc'] += torch.mean(
-                    (non_mc_predictions_batch == targets).float())
-                metrics['accuracy_non_mc'] /= 2
+                    # Accuracy (Non-MC)
+                    metrics['accuracy_non_mc'] += torch.mean(
+                        (non_mc_predictions_batch == targets).float())
+                    metrics['accuracy_non_mc'] /= 2
 
-                # test log-likelihood
-                metrics['test_ll_mc'] -= (
-                    F.cross_entropy(mean_raw_scores_batch, targets))
-                metrics['test_ll_mc'] /= 2
+                    # test log-likelihood
+                    metrics['test_ll_mc'] -= (
+                        F.cross_entropy(mean_raw_scores_batch, targets))
+                    metrics['test_ll_mc'] /= 2
 
             mean_predictions = torch.cat(mean_predictions)
         else:
