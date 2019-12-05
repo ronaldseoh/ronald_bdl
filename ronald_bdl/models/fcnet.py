@@ -1,5 +1,3 @@
-import itertools
-
 import torch
 import torch.nn as nn
 import torch.nn.init as init
@@ -94,7 +92,6 @@ class FCNet(nn.Module):
             y_std = 1
 
         metrics = {}
-        calculate_eval_metrics = False
 
         # No gradient tracking necessary
         with torch.no_grad():
@@ -128,12 +125,12 @@ class FCNet(nn.Module):
                 if 'y_test' in kwargs:
                     y_test = kwargs['y_test']
                 else:
-                    y_test = [None]
+                    y_test = [None for _ in len(test_data)]
 
                 # We will assume that y will be prepared to have
                 # same number of data points as
                 # data from test_data
-                for data, y in itertools.product(test_data, y_test):
+                for data, y in zip(test_data, y_test):
                     if test_data_have_targets:
                         inputs, targets = data
                     else:
