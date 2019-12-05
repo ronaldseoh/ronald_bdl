@@ -139,6 +139,7 @@ class FCNet(nn.Module):
                     assert len(inputs) == len(y)
                     targets = y
 
+                # Denormalization
                 if targets is not None:
                     targets = targets * y_std + y_mean
 
@@ -148,6 +149,8 @@ class FCNet(nn.Module):
 
                 inputs = inputs.to(first_weight_location)
 
+                # Explictly send targets to device memory only when
+                # it is coming from test_data DataLoader
                 if test_data_have_targets:
                     targets = targets.to(first_weight_location)
 
