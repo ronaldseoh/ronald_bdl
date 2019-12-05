@@ -1,3 +1,5 @@
+import itertools
+
 import torch
 import torch.nn as nn
 import torch.nn.init as init
@@ -77,16 +79,22 @@ class FCNet(nn.Module):
 
         return activation
 
-    def predict_dist(self, test_data, n_prediction=1000, **kwargs):
+    def predict_dist(self, test_data, test_data_have_targets=True,
+                     n_prediction=1000, **kwargs):
 
+        # Check whether self (network) was in training mode or testing mode
         was_eval = not self.training
 
+        # Target detransform (denormalization)
         if 'y_mean' in kwargs:
             y_mean = kwargs['y_mean']
             y_std = kwargs['y_std']
         else:
             y_mean = 0
             y_std = 1
+
+        metrics = {}
+        calculate_eval_metrics = False
 
         # No gradient tracking necessary
         with torch.no_grad():
@@ -95,29 +103,68 @@ class FCNet(nn.Module):
                 predictions = []
                 mean = 0
 
-                metrics['rmse_mc'] = 0
-                metrics['rmse_non_mc'] = 0
-                metrics['test_ll_mc'] = 0
+                # if test_data includes targets or y_test is given,
+                # We prepare variables for evaluation metrics
+                if test_data_have_targets or ('y_test' in kwargs):
 
-                reg_strength = torch.tensor(
-                    kwargs['reg_strength'], dtype=torch.float)
+                    metrics['rmse_mc'] = 0
+                    metrics['rmse_non_mc'] = 0
+                    metrics['test_ll_mc'] = 0
 
-                for data in test_data:
+                    # Parameters for Tau calculation
+                    reg_strength = torch.tensor(
+                        kwargs['reg_strength'], dtype=torch.float)
+
+                    length_scale = torch.tensor(
+                        kwargs['length_scale'], dtype=torch.float)
+
+                    train_size = kwargs['train_size']
+
+                    # Calculate tau (model precision)
+                    tau = utils_tau(
+                        self.dropout_rate, length_scale,
+                        train_size, reg_strength)
+
+                if 'y_test' in kwargs:
+                    y_test = kwargs['y_test']
+                else:
+                    y_test = [None]
+
+                # We will assume that y will be prepared to have
+                # same number of data points as
+                # data from test_data
+                for data, y in itertools.product(test_data, y_test):
+                    if test_data_have_targets:
+                        inputs, targets = data
+                    else:
+                        inputs = data
+                        targets = None
+
+                    if y is not None:
+                        assert len(inputs) == len(y)
+                        targets = y
+
+                    if targets is not None:
+                        targets = targets * y_std + y_mean
+
+                    # Determine where our test data needs to be sent to
+                    # by checking the first fc layer weight's location
+                    first_weight_location = self.input['linear'].weight.device
+
+                    inputs = inputs.to(first_weight_location)
+
+                    if test_data_have_targets:
+                        targets = targets.to(first_weight_location)
+
                     # Temporaily disable eval mode
                     if was_eval:
                         self.train()
 
-                    inputs, targets = data
-
-                    # Determine where our test data needs to be sent to
-                    # by checking the first conv layer weight's location
-                    first_weight_location = self.input['linear'].weight.device
-
-                    inputs = inputs.to(first_weight_location)
-                    targets = targets.to(first_weight_location)
-
                     predictions_batch = torch.stack(
                         [self.forward(inputs) for _ in range(n_prediction)])
+
+                    if was_eval:
+                        self.eval()
 
                     mean_batch = torch.mean(predictions_batch, 0)
 
@@ -126,37 +173,41 @@ class FCNet(nn.Module):
 
                     predictions.append(predictions_batch)
 
-                    # RMSE
-                    metrics['rmse_mc'] += torch.mean(
-                        torch.pow(target - mean_batch, 2))
-                    metrics['rmse_mc'] /= 2
+                    if len(metrics) > 0:
+                        # RMSE
+                        metrics['rmse_mc'] += torch.mean(
+                            torch.pow(target - mean_batch, 2))
+                        metrics['rmse_mc'] /= 2
 
-                    # RMSE (Non-MC)
-                    prediction_non_mc = self.forward(X_test)
-                    prediction_non_mc = prediction_non_mc * y_std + y_mean
+                        # RMSE (Non-MC)
+                        prediction_non_mc = self.forward(X_test)
+                        prediction_non_mc = prediction_non_mc * y_std + y_mean
 
-                    metrics['rmse_non_mc'] += torch.mean(
-                        torch.pow(target - prediction_non_mc, 2))
-                    metrics['rmse_non_mc'] /= 2
+                        metrics['rmse_non_mc'] += torch.mean(
+                            torch.pow(target - prediction_non_mc, 2))
+                        metrics['rmse_non_mc'] /= 2
 
-                    # test log-likelihood
-                    metrics['test_ll_mc'] -= torch.mean(
-                        torch.logsumexp(
-                            - torch.tensor(0.5) * reg_strength * torch.pow(
-                                y_test[None] - predictions, 2), 0)
-                        - torch.log(
-                            torch.tensor(n_predictions, dtype=torch.float))
-                        - torch.tensor(0.5) * torch.log(
-                            torch.tensor(2 * np.pi, dtype=torch.float))
-                        + torch.tensor(0.5) * torch.log(reg_strength)
-                    )
-                    metrics['test_ll_mc'] /= 2
+                        # test log-likelihood
+                        metrics['test_ll_mc'] -= torch.mean(
+                            torch.logsumexp(
+                                - torch.tensor(0.5) * tau * torch.pow(
+                                    y_test[None] - predictions, 2), 0)
+                            - torch.log(
+                                torch.tensor(n_predictions, dtype=torch.float))
+                            - torch.tensor(0.5) * torch.log(
+                                torch.tensor(2 * np.pi, dtype=torch.float))
+                            + torch.tensor(0.5) * torch.log(tau)
+                        )
+                        metrics['test_ll_mc'] /= 2
 
                 predictions = torch.cat(predictions)
                 var = torch.var(predictions)
-                metrics['rmse_mc'] = torch.sqrt(metrics['rmse_mc'])
-                metrics['rmse_non_mc'] = torch.sqrt(metrics['rmse_non_mc'])
 
+                if len(metrics) > 0:
+                    metrics['rmse_mc'] = torch.sqrt(metrics['rmse_mc'])
+                    metrics['rmse_non_mc'] = torch.sqrt(metrics['rmse_non_mc'])
+
+            # Assuming test_data is given in non-iterable format
             else:
                 # Temporaily disable eval mode
                 if was_eval:
