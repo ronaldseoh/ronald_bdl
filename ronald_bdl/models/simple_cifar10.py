@@ -134,6 +134,7 @@ class SimpleCIFAR10(nn.Module):
                     self.eval()
 
                 predictions_batch = torch.max(raw_scores_batch, 2).values
+                predictions.append(predictions_batch)
 
                 mean_raw_scores_batch = torch.mean(raw_scores_batch, 0)
                 mean_predictions_batch = torch.argmax(
@@ -161,6 +162,8 @@ class SimpleCIFAR10(nn.Module):
                     metrics['test_ll_mc'] /= 2
 
             mean_predictions = torch.cat(mean_predictions)
+            predictions = torch.cat(predictions)
+
         else:
             raise Exception(
                 'SimpleCIFAR10 predict_dist() '
