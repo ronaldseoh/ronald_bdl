@@ -93,174 +93,172 @@ class FCNet(nn.Module):
 
         metrics = {}
 
-        # No gradient tracking necessary
-        with torch.no_grad():
-            if isinstance(test_data, torch.utils.data.DataLoader):
+        if isinstance(test_data, torch.utils.data.DataLoader):
 
-                predictions = []
-                mean = 0
+            predictions = []
+            mean = 0
 
-                # if test_data includes targets or y_test is given,
-                # We prepare variables for evaluation metrics
-                if test_data_have_targets or ('y_test' in kwargs):
+            # if test_data includes targets or y_test is given,
+            # We prepare variables for evaluation metrics
+            if test_data_have_targets or ('y_test' in kwargs):
 
-                    metrics['rmse_mc'] = 0
-                    metrics['rmse_non_mc'] = 0
-                    metrics['test_ll_mc'] = 0
+                metrics['rmse_mc'] = 0
+                metrics['rmse_non_mc'] = 0
+                metrics['test_ll_mc'] = 0
 
-                    # Parameters for Tau calculation
-                    reg_strength = torch.tensor(
-                        kwargs['reg_strength'], dtype=torch.float)
+                # Parameters for Tau calculation
+                reg_strength = torch.tensor(
+                    kwargs['reg_strength'], dtype=torch.float)
 
-                    length_scale = torch.tensor(
-                        kwargs['length_scale'], dtype=torch.float)
+                length_scale = torch.tensor(
+                    kwargs['length_scale'], dtype=torch.float)
 
-                    train_size = kwargs['train_size']
+                train_size = kwargs['train_size']
 
-                    # Calculate tau (model precision)
-                    tau = utils_tau(
-                        self.dropout_rate, length_scale,
-                        train_size, reg_strength)
+                # Calculate tau (model precision)
+                tau = utils_tau(
+                    self.dropout_rate, length_scale,
+                    train_size, reg_strength)
 
-                if 'y_test' in kwargs:
-                    y_test = kwargs['y_test']
-                else:
-                    y_test = [None for _ in len(test_data)]
-
-                # We will assume that y will be prepared to have
-                # same number of data points as
-                # data from test_data
-                for data, y in zip(test_data, y_test):
-                    if test_data_have_targets:
-                        inputs, targets = data
-                    else:
-                        inputs = data
-                        targets = None
-
-                    if y is not None:
-                        assert len(inputs) == len(y)
-                        targets = y
-
-                    if targets is not None:
-                        targets = targets * y_std + y_mean
-
-                    # Determine where our test data needs to be sent to
-                    # by checking the first fc layer weight's location
-                    first_weight_location = self.input['linear'].weight.device
-
-                    inputs = inputs.to(first_weight_location)
-
-                    if test_data_have_targets:
-                        targets = targets.to(first_weight_location)
-
-                    # Temporaily disable eval mode
-                    if was_eval:
-                        self.train()
-
-                    predictions_batch = torch.stack(
-                        [self.forward(inputs) for _ in range(n_prediction)])
-
-                    if was_eval:
-                        self.eval()
-
-                    mean_batch = torch.mean(predictions_batch, 0)
-
-                    mean += mean_batch
-                    mean /= 2
-
-                    predictions.append(predictions_batch)
-
-                    if len(metrics) > 0:
-                        # RMSE
-                        metrics['rmse_mc'] += torch.mean(
-                            torch.pow(target - mean_batch, 2))
-                        metrics['rmse_mc'] /= 2
-
-                        # RMSE (Non-MC)
-                        prediction_non_mc = self.forward(X_test)
-                        prediction_non_mc = prediction_non_mc * y_std + y_mean
-
-                        metrics['rmse_non_mc'] += torch.mean(
-                            torch.pow(target - prediction_non_mc, 2))
-                        metrics['rmse_non_mc'] /= 2
-
-                        # test log-likelihood
-                        metrics['test_ll_mc'] -= torch.mean(
-                            torch.logsumexp(
-                                - torch.tensor(0.5) * tau * torch.pow(
-                                    y_test[None] - predictions, 2), 0)
-                            - torch.log(
-                                torch.tensor(n_predictions, dtype=torch.float))
-                            - torch.tensor(0.5) * torch.log(
-                                torch.tensor(2 * np.pi, dtype=torch.float))
-                            + torch.tensor(0.5) * torch.log(tau)
-                        )
-                        metrics['test_ll_mc'] /= 2
-
-                predictions = torch.cat(predictions)
-                var = torch.var(predictions)
-
-                if len(metrics) > 0:
-                    metrics['rmse_mc'] = torch.sqrt(metrics['rmse_mc'])
-                    metrics['rmse_non_mc'] = torch.sqrt(metrics['rmse_non_mc'])
-
-            # Assuming test_data is given in non-iterable format
+            if 'y_test' in kwargs:
+                y_test = kwargs['y_test']
             else:
+                y_test = [None for _ in len(test_data)]
+
+            # We will assume that y will be prepared to have
+            # same number of data points as
+            # data from test_data
+            for data, y in zip(test_data, y_test):
+                if test_data_have_targets:
+                    inputs, targets = data
+                else:
+                    inputs = data
+                    targets = None
+
+                if y is not None:
+                    assert len(inputs) == len(y)
+                    targets = y
+
+                if targets is not None:
+                    targets = targets * y_std + y_mean
+
+                # Determine where our test data needs to be sent to
+                # by checking the first fc layer weight's location
+                first_weight_location = self.input['linear'].weight.device
+
+                inputs = inputs.to(first_weight_location)
+
+                if test_data_have_targets:
+                    targets = targets.to(first_weight_location)
+
                 # Temporaily disable eval mode
                 if was_eval:
                     self.train()
 
-                predictions = torch.stack(
-                    [self.forward(test_data) for _ in range(n_prediction)])
-
-                predictions = predictions * y_std + y_mean
+                predictions_batch = torch.stack(
+                    [self.forward(inputs) for _ in range(n_prediction)])
 
                 if was_eval:
                     self.eval()
 
-                mean = torch.mean(predictions, 0)
-                var = torch.var(predictions, 0)
+                mean_batch = torch.mean(predictions_batch, 0)
 
-                # If y_test is given, calculate RMSE and test log-likelihood
-                metrics = {}
+                mean += mean_batch
+                mean /= 2
 
-                if 'y_test' in kwargs:
-                    y_test = kwargs['y_test']
-                    y_test = y_test * y_std + y_mean
+                predictions.append(predictions_batch)
 
-                    # Parameters for Tau calculation
-                    reg_strength = torch.tensor(
-                        kwargs['reg_strength'], dtype=torch.float)
-
-                    length_scale = torch.tensor(
-                        kwargs['length_scale'], dtype=torch.float)
-
-                    train_size = kwargs['train_size']
-
+                if len(metrics) > 0:
                     # RMSE
-                    metrics['rmse_mc'] = torch.sqrt(
-                        torch.mean(torch.pow(y_test - mean, 2)))
+                    metrics['rmse_mc'] += torch.mean(
+                        torch.pow(target - mean_batch, 2))
+                    metrics['rmse_mc'] /= 2
 
                     # RMSE (Non-MC)
-                    prediction_non_mc = self.forward(test_data)
+                    prediction_non_mc = self.forward(X_test)
                     prediction_non_mc = prediction_non_mc * y_std + y_mean
-                    metrics['rmse_non_mc'] = torch.sqrt(
-                        torch.mean(torch.pow(y_test - prediction_non_mc, 2)))
+
+                    metrics['rmse_non_mc'] += torch.mean(
+                        torch.pow(target - prediction_non_mc, 2))
+                    metrics['rmse_non_mc'] /= 2
 
                     # test log-likelihood
-                    tau = utils_tau(
-                        self.dropout_rate, length_scale,
-                        train_size, reg_strength)
-
-                    metrics['test_ll_mc'] = torch.mean(
+                    metrics['test_ll_mc'] -= torch.mean(
                         torch.logsumexp(
                             - torch.tensor(0.5) * tau * torch.pow(
                                 y_test[None] - predictions, 2), 0)
                         - torch.log(
-                            torch.tensor(n_prediction, dtype=torch.float))
+                            torch.tensor(n_predictions, dtype=torch.float))
                         - torch.tensor(0.5) * torch.log(
                             torch.tensor(2 * np.pi, dtype=torch.float))
                         + torch.tensor(0.5) * torch.log(tau)
                     )
+                    metrics['test_ll_mc'] /= 2
+
+            predictions = torch.cat(predictions)
+            var = torch.var(predictions)
+
+            if len(metrics) > 0:
+                metrics['rmse_mc'] = torch.sqrt(metrics['rmse_mc'])
+                metrics['rmse_non_mc'] = torch.sqrt(metrics['rmse_non_mc'])
+
+        # Assuming test_data is given in non-iterable format
+        else:
+            # Temporaily disable eval mode
+            if was_eval:
+                self.train()
+
+            predictions = torch.stack(
+                [self.forward(test_data) for _ in range(n_prediction)])
+
+            predictions = predictions * y_std + y_mean
+
+            if was_eval:
+                self.eval()
+
+            mean = torch.mean(predictions, 0)
+            var = torch.var(predictions, 0)
+
+            # If y_test is given, calculate RMSE and test log-likelihood
+            metrics = {}
+
+            if 'y_test' in kwargs:
+                y_test = kwargs['y_test']
+                y_test = y_test * y_std + y_mean
+
+                # Parameters for Tau calculation
+                reg_strength = torch.tensor(
+                    kwargs['reg_strength'], dtype=torch.float)
+
+                length_scale = torch.tensor(
+                    kwargs['length_scale'], dtype=torch.float)
+
+                train_size = kwargs['train_size']
+
+                # RMSE
+                metrics['rmse_mc'] = torch.sqrt(
+                    torch.mean(torch.pow(y_test - mean, 2)))
+
+                # RMSE (Non-MC)
+                prediction_non_mc = self.forward(test_data)
+                prediction_non_mc = prediction_non_mc * y_std + y_mean
+                metrics['rmse_non_mc'] = torch.sqrt(
+                    torch.mean(torch.pow(y_test - prediction_non_mc, 2)))
+
+                # test log-likelihood
+                tau = utils_tau(
+                    self.dropout_rate, length_scale,
+                    train_size, reg_strength)
+
+                metrics['test_ll_mc'] = torch.mean(
+                    torch.logsumexp(
+                        - torch.tensor(0.5) * tau * torch.pow(
+                            y_test[None] - predictions, 2), 0)
+                    - torch.log(
+                        torch.tensor(n_prediction, dtype=torch.float))
+                    - torch.tensor(0.5) * torch.log(
+                        torch.tensor(2 * np.pi, dtype=torch.float))
+                    + torch.tensor(0.5) * torch.log(tau)
+                )
 
         return predictions, mean, var, metrics
