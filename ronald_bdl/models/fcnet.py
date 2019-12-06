@@ -57,7 +57,7 @@ class FCNet(nn.Module):
 
         # Hetero noise
         if self.learn_hetero:
-            self.output_noise = nn.Linear(hidden_dim, 1)
+            self.output_noise = nn.Linear(hidden_dim, output_dim)
 
         # Output
         self.output = nn.ModuleDict({
@@ -224,10 +224,14 @@ class FCNet(nn.Module):
                 self.train()
 
             predictions = []
+            noises = []
 
             for _ in range(n_prediction):
-                outputs, _ = self.forward(test_data)
+                outputs, noise = self.forward(test_data)
                 predictions.append(outputs)
+
+                if noise is not None:
+                    noises.append(noise.exp())
 
             predictions = torch.stack(predictions)
 
@@ -238,6 +242,12 @@ class FCNet(nn.Module):
 
             mean = torch.mean(predictions, 0)
             var = torch.var(predictions, 0)
+
+            if len(noises) > 0:
+                noises = torch.stack(noises)
+                noises = torch.mean(torch.pow(noises, 2), 0)
+            else:
+                noises = torch.zeros_like(var)
 
             # If y_test is given, calculate RMSE and test log-likelihood
             metrics = {}
@@ -281,4 +291,4 @@ class FCNet(nn.Module):
                     + torch.tensor(0.5) * torch.log(tau)
                 )
 
-        return predictions, mean, var, metrics
+        return predictions, mean, var, noises, metrics
