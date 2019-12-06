@@ -5,7 +5,10 @@ from torch.utils.data import Dataset
 class ToyDatasets(Dataset):
 
     def __init__(self, random_seed=691, n_samples=20,
-                 x_low=-4, x_high=4, y_mean=0, y_std=9, transform=None):
+                 x_low=-4, x_high=4, y_mean=0, y_std=9,
+                 inject_additional_noise_x_range=None,
+                 inject_additional_noise_y_from=None,
+                 inject_additional_noise_y_to=None):
 
         self.transform = transform
 
@@ -25,6 +28,18 @@ class ToyDatasets(Dataset):
         self.data_y_function = torch.pow(self.data_x, 3)
         self.data_y_noise = torch.empty(n_samples, 1).normal_(
             mean=y_mean, std=y_std, generator=self._generator)
+
+        if inject_additional_noise_x_range is not None:
+            additional_noise = torch.empty_like(
+                self.data_y_noise[inject_additional_noise_x_range])
+
+            # add uniform noise
+            additional_noise = additional_noise.uniform_(
+                inject_additional_noise_y_from, inject_additional_noise_y_to,
+                generator=self._generator)
+
+            self.data_y_noise[inject_additional_noise_x_range] \
+                += additional_noise
 
         self.data_y = self.data_y_function + self.data_y_noise
 
