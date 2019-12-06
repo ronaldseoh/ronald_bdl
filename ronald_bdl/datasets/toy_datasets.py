@@ -5,10 +5,10 @@ from torch.utils.data import Dataset
 class ToyDatasets(Dataset):
 
     def __init__(self, random_seed=691, n_samples=20,
-                 x_low=-4, x_high=4, y_mean=0, y_std=9,
-                 inject_additional_noise_x_indexes=None,
-                 inject_additional_noise_y_from=None,
-                 inject_additional_noise_y_to=None,
+                 x_low=-4, x_high=4, y_noise_mean=0, y_noise_std=9,
+                 more_noise_x_indexes=None,
+                 more_noise_y_from=None,
+                 more_noise_y_to=None,
                  transform=None):
 
         self._generator = torch.Generator()
@@ -28,18 +28,18 @@ class ToyDatasets(Dataset):
         # Construct self.data_y with function values and noise
         self.data_y_function = torch.pow(self.data_x, 3)
         self.data_y_noise = torch.empty(n_samples, 1).normal_(
-            mean=y_mean, std=y_std, generator=self._generator)
+            mean=y_noise_mean, std=y_noise_std, generator=self._generator)
 
-        if inject_additional_noise_x_indexes is not None:
+        if more_noise_x_indexes is not None:
             additional_noise = torch.empty_like(
-                self.data_y_noise[inject_additional_noise_x_indexes])
+                self.data_y_noise[more_noise_x_indexes])
 
             # add uniform noise
             additional_noise = additional_noise.uniform_(
-                inject_additional_noise_y_from, inject_additional_noise_y_to,
+                more_noise_y_from, more_noise_y_to,
                 generator=self._generator)
 
-            self.data_y_noise[inject_additional_noise_x_indexes] \
+            self.data_y_noise[more_noise_x_indexes] \
                 += additional_noise
 
         self.data_y = self.data_y_function + self.data_y_noise
