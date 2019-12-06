@@ -226,7 +226,7 @@ class FCNet(nn.Module):
             predictions = []
 
             for _ in range(n_prediction):
-                outputs, _ = predictions.append(self.forward)
+                outputs, _ = self.forward(test_data)
                 predictions.append(outputs)
 
             predictions = torch.stack(predictions)
