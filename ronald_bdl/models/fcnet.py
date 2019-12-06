@@ -28,6 +28,9 @@ class FCNet(nn.Module):
         else:
             self.nonlinear_type = 'relu'
 
+        if 'learn_hetero' in kwargs:
+            self.learn_hetero = kwargs['learn_hetero']
+
         # Setup layers
         # Input layer
         self.input = nn.ModuleDict({
@@ -52,6 +55,10 @@ class FCNet(nn.Module):
                     })
                 )
 
+        # Hetero noise
+        if self.learn_hetero:
+            self.output_noise = nn.Linear(hidden_dim, 1)
+
         # Output
         self.output = nn.ModuleDict({
             'linear': nn.Linear(hidden_dim, output_dim),
@@ -72,10 +79,15 @@ class FCNet(nn.Module):
                 activation = hidden['dropout'](activation)
                 activation = hidden['nonlinear'](activation)
 
+        if self.learn_hetero:
+            noise = self.output_noise(activation)
+        else:
+            noise = None
+
         activation = self.output['linear'](activation)
         activation = self.output['dropout'](activation)
 
-        return activation
+        return activation, noise
 
     def predict_dist(self, test_data, test_data_have_targets=True,
                      n_prediction=1000, **kwargs):
@@ -211,8 +223,13 @@ class FCNet(nn.Module):
             if was_eval:
                 self.train()
 
-            predictions = torch.stack(
-                [self.forward(test_data) for _ in range(n_prediction)])
+            predictions = []
+
+            for _ in range(n_prediction):
+                outputs, _ = self.forward(test_data)
+                predictions.append(outputs)
+
+            predictions = torch.stack(predictions)
 
             predictions = predictions * y_std + y_mean
 
@@ -243,7 +260,7 @@ class FCNet(nn.Module):
                     torch.mean(torch.pow(y_test - mean, 2)))
 
                 # RMSE (Non-MC)
-                prediction_non_mc = self.forward(test_data)
+                prediction_non_mc, _ = self.forward(test_data)
                 prediction_non_mc = prediction_non_mc * y_std + y_mean
                 metrics['rmse_non_mc'] = torch.sqrt(
                     torch.mean(torch.pow(y_test - prediction_non_mc, 2)))
@@ -255,8 +272,8 @@ class FCNet(nn.Module):
 
                 metrics['test_ll_mc'] = torch.mean(
                     torch.logsumexp(
-                        - torch.tensor(0.5) * tau * torch.pow(
-                            y_test[None] - predictions, 2), 0)
+                        - torch.tensor(0.5) * tau
+                        * torch.pow(y_test[None] - predictions, 2), 0)
                     - torch.log(
                         torch.tensor(n_prediction, dtype=torch.float))
                     - torch.tensor(0.5) * torch.log(
