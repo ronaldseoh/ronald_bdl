@@ -52,10 +52,12 @@ def reg_strength(dropout_rate, length_scale, train_size, tau):
 
 # Adapted from
 # https://github.com/JavierAntoran/Bayesian-Neural-Networks/blob/master/notebooks/regression/mc_dropout_hetero.ipynb
-def log_gaussian_loss(outputs, targets, sigma, train_size):
+def log_gaussian_loss(outputs, targets, sigma):
+
+    n_dim = targets.shape[1]
 
     exponent = -0.5 * torch.pow(targets - outputs, 2) / torch.pow(sigma, 2)
 
-    log_coefficient = - train_size * torch.log(sigma) - 0.5 * train_size * torch.log(torch.tensor(2 * np.pi))
+    log_coefficient = - n_dim * torch.log(sigma) - 0.5 * n_dim * torch.log(torch.tensor(2 * np.pi))
 
     return - (log_coefficient + exponent).sum()
