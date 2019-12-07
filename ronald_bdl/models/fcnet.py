@@ -89,7 +89,7 @@ class FCNet(nn.Module):
 
         return activation, noise
 
-    def predict_dist(self, test_data, test_data_have_targets=True,
+    def predict_dist(self, test_data, test_data_have_targets=True, tau=None,
                      n_prediction=1000, **kwargs):
 
         # Check whether self (network) was in training mode or testing mode
@@ -102,6 +102,12 @@ class FCNet(nn.Module):
         else:
             y_mean = 0
             y_std = 1
+
+        # Parameters for Tau calculation
+        if not self.learn_hetero:
+            if tau is None:
+                raise Exception(
+                    "tau needs to be specified for homoscedastic noise.")
 
         metrics = {}
 
@@ -117,20 +123,6 @@ class FCNet(nn.Module):
                 metrics['rmse_mc'] = 0
                 metrics['rmse_non_mc'] = 0
                 metrics['test_ll_mc'] = 0
-
-                # Parameters for Tau calculation
-                reg_strength = torch.tensor(
-                    kwargs['reg_strength'], dtype=torch.float)
-
-                length_scale = torch.tensor(
-                    kwargs['length_scale'], dtype=torch.float)
-
-                train_size = kwargs['train_size']
-
-                # Calculate tau (model precision)
-                tau = utils_tau(
-                    self.dropout_rate, length_scale,
-                    train_size, reg_strength)
 
             if 'y_test' in kwargs:
                 y_test = kwargs['y_test']
@@ -241,29 +233,22 @@ class FCNet(nn.Module):
                 self.eval()
 
             mean = torch.mean(predictions, 0)
+
+            # Epistemic variance
             var = torch.var(predictions, 0)
 
+            # If noises were learned
             if len(noises) > 0:
                 noises = torch.stack(noises)
                 noises = torch.mean(torch.pow(noises, 2), 0)
             else:
-                noises = torch.zeros_like(var)
+                # homoscedastic noise
+                noises = (1/tau) * torch.ones_like(var)
 
             # If y_test is given, calculate RMSE and test log-likelihood
-            metrics = {}
-
             if 'y_test' in kwargs:
                 y_test = kwargs['y_test']
                 y_test = y_test * y_std + y_mean
-
-                # Parameters for Tau calculation
-                reg_strength = torch.tensor(
-                    kwargs['reg_strength'], dtype=torch.float)
-
-                length_scale = torch.tensor(
-                    kwargs['length_scale'], dtype=torch.float)
-
-                train_size = kwargs['train_size']
 
                 # RMSE
                 metrics['rmse_mc'] = torch.sqrt(
@@ -276,10 +261,6 @@ class FCNet(nn.Module):
                     torch.mean(torch.pow(y_test - prediction_non_mc, 2)))
 
                 # test log-likelihood
-                tau = utils_tau(
-                    self.dropout_rate, length_scale,
-                    train_size, reg_strength)
-
                 metrics['test_ll_mc'] = torch.mean(
                     torch.logsumexp(
                         - torch.tensor(0.5) * tau
