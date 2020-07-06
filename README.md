@@ -12,7 +12,7 @@ If you want to modify the code within `ronald_bdl`, please clone/download the `r
 
 Please refer to [README.md](https://link.iamblogger.net/47cxb) in the `bayesian-dl-experiments` repo for more details.
 
-This repository was started with the codes transferred from [`bayesian-dl-experiments`](https://link.iamblogger.net/bdl-exp). For the older commit histories, please check [here](https://link.iamblogger.net/068qc).
+This repository was started with the codes transferred from [`bayesian-dl-experiments`](https://link.iamblogger.net/bdl-exp). For older commit histories, please check [here](https://link.iamblogger.net/068qc).
 
 # License
 
