@@ -1,6 +1,6 @@
 # ronald_bdl
 
-`ronald_bdl` is a Python package used to produce the results presented in the technical report [*Qualitative Analysis of Monte Carlo Dropout*](https://link.iamblogger.net/mc-dropout-qual-report).
+`ronald_bdl` is the Python package used to produce the results presented in the technical report [*Qualitative Analysis of Monte Carlo Dropout*](https://link.iamblogger.net/mc-dropout-qual-report).
 
 This package contains pre-defined PyTorch NN models (`ronald_bdl.models`) and [Dataset](https://link.iamblogger.net/pytorch-data-tutorial) classes (`ronald_bdl.datasets`). Please run the following command using `pip` to install:
 
